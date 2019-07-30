@@ -105,6 +105,7 @@ public class MainVerticle extends AbstractVerticle {
            }
            else{
                LOGGER.info("Information for "+name+" could not be retrieved.", reply.cause());
+               resultHandler.handle(Future.failedFuture(reply.cause()));
            }
         });
 
