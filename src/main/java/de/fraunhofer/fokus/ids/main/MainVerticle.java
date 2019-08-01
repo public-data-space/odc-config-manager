@@ -79,6 +79,8 @@ public class MainVerticle extends AbstractVerticle {
 
         router.post("/register").handler(routingContext -> register(routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response())));
 
+        router.post("/edit/:name").handler(routingContext -> edit(routingContext.request().getParam("name"), routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response())));
+
         LOGGER.info("Starting Config manager");
         server.requestHandler(router).listen(8094);
         LOGGER.info("Config manager successfully started.");
@@ -98,6 +100,22 @@ public class MainVerticle extends AbstractVerticle {
         }
     }
 
+    private void edit(String name, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler ){
+        this.databaseService.update("UPDATE adapters SET updated_at = ?, address = ? WHERE name = ? ", new JsonArray().add(new Date().toInstant()).add(jsonObject).add(name), reply -> {
+            if(reply.succeeded()){
+                JsonObject jO = new JsonObject();
+                jO.put("status", "success");
+                jO.put("text", "Adapter wurde geändert.");
+                resultHandler.handle(Future.succeededFuture(jO));
+            } else {
+                JsonObject jO = new JsonObject();
+                jO.put("status", "error");
+                jO.put("text", "Der Adapter konnte nicht geändert werden!");
+                resultHandler.handle(Future.succeededFuture(jO));
+            }
+        });
+    }
+
     private void getAdapter(String name, Handler<AsyncResult<JsonObject>> resultHandler){
         this.databaseService.query("SELECT address FROM adapters WHERE name= ?", new JsonArray().add(name), reply -> {
            if(reply.succeeded()){
@@ -114,7 +132,8 @@ public class MainVerticle extends AbstractVerticle {
     private void register(JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler){
 
         Date d = new Date();
-        this.databaseService.update("INSERT INTO adapters values(?,?,?)", new JsonArray()
+        this.databaseService.update("INSERT INTO adapters values(?,?,?,?)", new JsonArray()
+                .add(d.toInstant())
                 .add(d.toInstant())
                 .add(jsonObject.getString("name"))
                 .add(jsonObject.getJsonObject("address").toString()), reply -> {

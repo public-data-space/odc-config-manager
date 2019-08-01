@@ -28,7 +28,7 @@ public class InitService {
     }
 
     private void initDB(Handler<AsyncResult<Void>> resultHandler){
-        databaseService.update("CREATE TABLE IF NOT EXISTS adapters (created_at, name, address)", new JsonArray(), reply -> {
+        databaseService.update("CREATE TABLE IF NOT EXISTS adapters (created_at, updated_at, name, address)", new JsonArray(), reply -> {
             if(reply.succeeded()){
                 resultHandler.handle(Future.succeededFuture());
             }
@@ -36,6 +36,6 @@ public class InitService {
                 LOGGER.info("Table creation failed.", reply.cause());
                 resultHandler.handle(Future.failedFuture(reply.cause()));
             }
-        });
+    });
     }
 }
