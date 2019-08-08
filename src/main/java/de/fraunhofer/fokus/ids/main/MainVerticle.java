@@ -82,7 +82,7 @@ public class MainVerticle extends AbstractVerticle {
         router.post("/edit/:name").handler(routingContext -> edit(routingContext.request().getParam("name"), routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response())));
 
         LOGGER.info("Starting Config manager");
-        server.requestHandler(router).listen(8094);
+        server.requestHandler(router).listen(8080);
         LOGGER.info("Config manager successfully started.");
     }
 
