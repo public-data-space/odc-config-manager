@@ -3,6 +3,11 @@ package de.fraunhofer.fokus.ids.main;
 import de.fraunhofer.fokus.ids.services.InitService;
 import de.fraunhofer.fokus.ids.services.database.DatabaseService;
 import de.fraunhofer.fokus.ids.services.database.DatabaseServiceVerticle;
+import de.fraunhofer.fokus.ids.services.docker.DockerService;
+import de.fraunhofer.fokus.ids.services.docker.DockerServiceVerticle;
+import io.vertx.config.ConfigRetriever;
+import io.vertx.config.ConfigRetrieverOptions;
+import io.vertx.config.ConfigStoreOptions;
 import io.vertx.core.*;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.HttpServer;
@@ -26,6 +31,8 @@ public class MainVerticle extends AbstractVerticle {
     private static Logger LOGGER = LoggerFactory.getLogger(MainVerticle.class.getName());
     private Router router;
     private DatabaseService databaseService;
+    private DockerService dockerService;
+    private int servicePort;
 
     @Override
     public void start(Future<Void> startFuture) {
@@ -34,25 +41,53 @@ public class MainVerticle extends AbstractVerticle {
         DeploymentOptions deploymentOptions = new DeploymentOptions();
         deploymentOptions.setWorker(true);
 
-        vertx.deployVerticle(DatabaseServiceVerticle.class.getName(), deploymentOptions, reply -> {
-            if(reply.succeeded()) {
-                LOGGER.info("DatabaseService started");
-                this.databaseService = DatabaseService.createProxy(vertx, "de.fraunhofer.fokus.ids.databaseService");
-                new InitService(vertx, reply2 -> {
-                    if(reply.succeeded()){
-                        LOGGER.info("Initialization complete.");
+        Future<String> deployment = Future.succeededFuture();
+        deployment
+                .compose(id1 -> {
+                    Future<String> databaseDeploymentFuture = Future.future();
+                    vertx.deployVerticle(DatabaseServiceVerticle.class.getName(), deploymentOptions, databaseDeploymentFuture.completer());
+                    return databaseDeploymentFuture;
+                })
+                .compose(id2 -> {
+                    Future<String> dockerServiceFuture = Future.future();
+                    vertx.deployVerticle(DockerServiceVerticle.class.getName(), deploymentOptions, dockerServiceFuture.completer());
+                    return dockerServiceFuture;
+                })
+                .compose(id3 -> {
+                    Future<String> envFuture = Future.future();
+                    ConfigStoreOptions confStore = new ConfigStoreOptions()
+                            .setType("env");
+                    ConfigRetrieverOptions options = new ConfigRetrieverOptions().addStore(confStore);
+                    ConfigRetriever retriever = ConfigRetriever.create(vertx, options);
+                    retriever.getConfig(ar -> {
+                        if (ar.succeeded()) {
+                            servicePort = ar.result().getInteger("SERVICE_PORT");
+                            envFuture.complete();
+                        } else {
+                            envFuture.fail(ar.cause());
+                        }
+                    });
+                    return envFuture;
+                }).setHandler( ar -> {
+                    if(ar.succeeded()){
+                        this.databaseService = DatabaseService.createProxy(vertx, "de.fraunhofer.fokus.ids.databaseService");
+                        this.dockerService = DockerService.createProxy(vertx, "de.fraunhofer.fokus.ids.dockerService");
+                        new InitService(vertx, reply -> {
+                            if(reply.succeeded()){
+                                LOGGER.info("Initialization complete.");
+                                createHttpServer();
+                                startFuture.complete();
+                            }
+                            else{
+                                LOGGER.info("Initialization failed.");
+                                startFuture.fail(reply.cause());
+                            }
+                        });
                     }
                     else{
-                        LOGGER.info("Initialization failed.");
+                        startFuture.fail(ar.cause());
                     }
                 });
-            }
-            else{
-                LOGGER.info("DatabaseService init failed.", reply.cause());
-            }
-        });
-
-        createHttpServer();
     }
 
     private void createHttpServer() {
@@ -62,6 +97,7 @@ public class MainVerticle extends AbstractVerticle {
         allowedHeaders.add("x-requested-with");
         allowedHeaders.add("Access-Control-Allow-Origin");
         allowedHeaders.add("origin");
+        allowedHeaders.add("authorization");
         allowedHeaders.add("Content-Type");
         allowedHeaders.add("accept");
         allowedHeaders.add("X-PINGARUNER");
@@ -81,10 +117,52 @@ public class MainVerticle extends AbstractVerticle {
 
         router.post("/edit/:name").handler(routingContext -> edit(routingContext.request().getParam("name"), routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response())));
 
+        router.route("/images").handler(routingContext ->  findImages(reply -> reply(reply, routingContext.response())));
+
+        router.route("/images/start/:id").handler(routingContext ->  startContainer(routingContext.request().getParam("id"),reply -> reply(reply, routingContext.response())));
+
+        router.post("/images/stop/").handler(routingContext ->  stopContainer(routingContext.getBodyAsJsonArray(),reply -> reply(reply, routingContext.response())));
+
         LOGGER.info("Starting Config manager");
-        server.requestHandler(router).listen(8080);
-        LOGGER.info("Config manager successfully started.");
+        server.requestHandler(router).listen(servicePort);
+        LOGGER.info("Config manager successfully started om port "+servicePort);
     }
+
+    private void startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler){
+        dockerService.startContainer(imageId, reply -> {
+            if(reply.succeeded()){
+                register(reply.result(), res -> {});
+                JsonObject jO = new JsonObject();
+                jO.put("status", "success");
+                jO.put("text", "App wird gestartet...");
+                resultHandler.handle(Future.succeededFuture(jO));
+            }
+            else{
+                JsonObject jO = new JsonObject();
+                jO.put("status", "error");
+                jO.put("text", "App konnte nicht gestartet werden.");
+                resultHandler.handle(Future.succeededFuture(jO));
+            }
+        });
+    }
+
+    private void stopContainer(JsonArray imageIds, Handler<AsyncResult<JsonObject>> resultHandler){
+        dockerService.stopContainer(imageIds, reply -> {
+            if(reply.succeeded()){
+                JsonObject jO = new JsonObject();
+                jO.put("status", "success");
+                jO.put("text", "App wird gestoppt...");
+                resultHandler.handle(Future.succeededFuture(jO));
+            }
+            else{
+                JsonObject jO = new JsonObject();
+                jO.put("status", "error");
+                jO.put("text", "App konnte nicht gestoppt werden.");
+                resultHandler.handle(Future.succeededFuture(jO));
+            }
+        });
+    }
+
 
     private void reply(AsyncResult result, HttpServerResponse response) {
         if (result.succeeded()) {
@@ -98,6 +176,19 @@ public class MainVerticle extends AbstractVerticle {
         } else {
             response.setStatusCode(404).end();
         }
+    }
+
+    private void findImages(Handler<AsyncResult<JsonArray>> resultHandler){
+        LOGGER.info("Loading images.");
+        this.dockerService.findImages(reply -> {
+           if(reply.succeeded()){
+               resultHandler.handle(reply);
+           }
+           else{
+               LOGGER.info("Images could not be loaded.", reply.cause());
+               resultHandler.handle(Future.failedFuture(reply.cause()));
+           }
+        });
     }
 
     private void edit(String name, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler ){
