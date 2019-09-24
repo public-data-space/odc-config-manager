@@ -69,7 +69,7 @@ public class DockerServiceImpl implements DockerService {
     public DockerService startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler) {
         Network idsNetwork = dockerClient.listNetworksCmd().withNameFilter("ids_connector").exec().get(0);
         Volume v = new Volume("/ids/repo/");
-        CreateContainerResponse container = dockerClient.createContainerCmd(imageId).withVolumes(v).withEnv("REPOSITORY=/ids/repo").exec();
+        CreateContainerResponse container = dockerClient.createContainerCmd(imageId).withVolumes(v).withEnv("REPOSITORY=/ids/repo/").exec();
         dockerClient.startContainerCmd(container.getId()).exec();
         dockerClient.connectToNetworkCmd()
                 .withNetworkId(idsNetwork.getId())
