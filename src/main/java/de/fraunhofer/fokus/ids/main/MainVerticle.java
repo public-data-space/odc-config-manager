@@ -121,11 +121,25 @@ public class MainVerticle extends AbstractVerticle {
 
         router.route("/images/start/:id").handler(routingContext ->  startContainer(routingContext.request().getParam("id"),reply -> reply(reply, routingContext.response())));
 
+        router.route("/listAdapters").handler(routingContext ->  listAdapters(reply -> reply(reply, routingContext.response())));
+
         router.post("/images/stop/").handler(routingContext ->  stopContainer(routingContext.getBodyAsJsonArray(),reply -> reply(reply, routingContext.response())));
 
         LOGGER.info("Starting Config manager");
         server.requestHandler(router).listen(servicePort);
         LOGGER.info("Config manager successfully started om port "+servicePort);
+    }
+
+    private void listAdapters(Handler<AsyncResult<JsonArray>> resultHandler){
+        this.databaseService.query("SELECT name FROM adapters", new JsonArray(), reply -> {
+            if(reply.succeeded()){
+                resultHandler.handle(Future.succeededFuture(new JsonArray(reply.result())));
+            }
+            else{
+                LOGGER.info("Adapter names could not be retrieved.", reply.cause());
+                resultHandler.handle(Future.failedFuture(reply.cause()));
+            }
+        });
     }
 
     private void startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler){
@@ -150,6 +164,7 @@ public class MainVerticle extends AbstractVerticle {
         dockerService.stopContainer(imageIds, reply -> {
             if(reply.succeeded()){
                 JsonObject jO = new JsonObject();
+                unregister(reply.result());
                 jO.put("status", "success");
                 jO.put("text", "App wird gestoppt...");
                 resultHandler.handle(Future.succeededFuture(jO));
@@ -192,7 +207,7 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void edit(String name, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler ){
-        this.databaseService.update("UPDATE adapters SET updated_at = ?, address = ? WHERE name = ? ", new JsonArray().add(new Date().toInstant()).add(jsonObject).add(name), reply -> {
+        this.databaseService.update("UPDATE adapters SET updated_at = ?, host = ?, port = ? WHERE name = ? ", new JsonArray().add(new Date().toInstant()).add(jsonObject.getString("host")).add(jsonObject.getLong("port")).add(name), reply -> {
             if(reply.succeeded()){
                 JsonObject jO = new JsonObject();
                 jO.put("status", "success");
@@ -208,9 +223,11 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void getAdapter(String name, Handler<AsyncResult<JsonObject>> resultHandler){
-        this.databaseService.query("SELECT address FROM adapters WHERE name= ?", new JsonArray().add(name), reply -> {
+        this.databaseService.query("SELECT host, port FROM adapters WHERE name= ?", new JsonArray().add(name), reply -> {
            if(reply.succeeded()){
-               resultHandler.handle(Future.succeededFuture(new JsonObject(reply.result().get(0).getString("address"))));
+               JsonObject jsonObject = new JsonObject().put("host", reply.result().get(0).getString("host"))
+                                                    .put("port", reply.result().get(0).getLong("port"));
+               resultHandler.handle(Future.succeededFuture(jsonObject));
            }
            else{
                LOGGER.info("Information for "+name+" could not be retrieved.", reply.cause());
@@ -220,14 +237,29 @@ public class MainVerticle extends AbstractVerticle {
 
     }
 
+    private void unregister(JsonArray jsonArray){
+
+        LOGGER.info(jsonArray.toString());
+
+        this.databaseService.update("DELETE FROM adapters WHERE host=?", jsonArray, reply -> {
+           if(reply.succeeded()){
+                LOGGER.info("delete succeded");
+           }
+           else{
+               LOGGER.info(reply.cause());
+           }
+        });
+    }
+
     private void register(JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler){
 
         Date d = new Date();
-        this.databaseService.update("INSERT INTO adapters values(?,?,?,?)", new JsonArray()
+        this.databaseService.update("INSERT INTO adapters values(?,?,?,?, ?)", new JsonArray()
                 .add(d.toInstant())
                 .add(d.toInstant())
                 .add(jsonObject.getString("name"))
-                .add(jsonObject.getJsonObject("address").toString()), reply -> {
+                .add(jsonObject.getJsonObject("address").getString("host"))
+                .add(jsonObject.getJsonObject("address").getLong("port")), reply -> {
                     if(reply.succeeded()){
                         JsonObject jO = new JsonObject();
                         jO.put("status", "success");

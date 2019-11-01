@@ -25,7 +25,7 @@ public interface DockerService {
     DockerService startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler);
 
     @Fluent
-    DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<Void>> resultHandler);
+    DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<JsonArray>> resultHandler);
 
     @Fluent
     DockerService findContainersInNetwork(Handler<AsyncResult<JsonArray>> resultHandler);

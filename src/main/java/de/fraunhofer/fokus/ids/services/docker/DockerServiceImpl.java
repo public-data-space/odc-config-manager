@@ -23,6 +23,7 @@ public class DockerServiceImpl implements DockerService {
     DockerClient dockerClient;
     Set<String> knownImages = new HashSet<>();
     DatabaseService databaseService;
+    String prefix = "";
 
     public DockerServiceImpl(DatabaseService databaseService, DockerClient dockerClient, Handler<AsyncResult<DockerService>> readyHandler){
         this.dockerClient = dockerClient;
@@ -30,25 +31,27 @@ public class DockerServiceImpl implements DockerService {
         knownImages.add("<none>");
         knownImages.add("maven");
         knownImages.add("node");
+        knownImages.add("postgres");
         readyHandler.handle(Future.succeededFuture(this));
     }
 
     @Override
     public DockerService findImages(Handler<AsyncResult<JsonArray>> resultHandler) {
         List<Image> images = dockerClient.listImagesCmd().exec();
+        for(Image i : images){
+            for(String t : i.getRepoTags()){
+                if(t.contains("odc-config-manager")){
+                    prefix = t.substring(0, t.indexOf("_"));
+                }
+            }
+        }
         List<Container> containers = dockerClient.listContainersCmd().exec();
-        databaseService.query("SELECT imageId FROM images", new JsonArray(), reply -> {
-            if(reply.succeeded()){
                 List<JsonObject> imageList = images.stream()
                         .filter(i -> !knownImages.contains(i.getRepoTags()[0].split(":")[0]))
-                        .filter(i -> !reply.result()
-                                    .stream()
-                                    .map(ki -> ki.getString("imageId"))
-                                    .collect(Collectors.toSet())
-                                .contains(i.getId()))
+                        .filter(i -> !(i.getRepoTags().length==1 && i.getRepoTags()[0].startsWith(prefix)))
                         .map(i -> {
                             DockerImage image = new DockerImage();
-                            image.setName(i.getRepoTags()[0].split(":")[0]);
+                            image.setName(i.getRepoTags()[0].split(":")[0].toUpperCase());
                             image.setId(i.getId());
                             image.setContainerIds(containers.stream()
                                     .filter(c ->c.getImageId().equals(i.getId()))
@@ -57,11 +60,6 @@ public class DockerServiceImpl implements DockerService {
                             return new JsonObject(Json.encode(image));
                         }).collect(Collectors.toList());
                 resultHandler.handle(Future.succeededFuture(new JsonArray(imageList)));
-            }
-            else{
-
-            }
-        });
         return this;
     }
 
@@ -88,11 +86,13 @@ public class DockerServiceImpl implements DockerService {
     }
 
     @Override
-    public DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<Void>> resultHandler) {
+    public DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<JsonArray>> resultHandler) {
+        JsonArray array = new JsonArray();
         for(Object containerId : containerIds) {
             dockerClient.stopContainerCmd(containerId.toString()).exec();
+            array.add(containerId.toString().substring(0,12));
         }
-        resultHandler.handle(Future.succeededFuture());
+        resultHandler.handle(Future.succeededFuture(array));
         return this;
     }
 
