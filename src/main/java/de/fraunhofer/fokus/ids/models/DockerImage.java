@@ -1,12 +1,14 @@
 package de.fraunhofer.fokus.ids.models;
 
 import java.util.List;
-
+/**
+ * @author Vincent Bohlen, vincent.bohlen@fokus.fraunhofer.de
+ */
 public class DockerImage {
 
-    String imageId;
-    String name;
-    List<String> containerIds;
+    private String imageId;
+    private String name;
+    private List<String> containerIds;
 
     public List<String> getContainerIds() {
         return containerIds;

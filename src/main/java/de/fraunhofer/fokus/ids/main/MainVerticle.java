@@ -25,7 +25,9 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
-
+/**
+ * @author Vincent Bohlen, vincent.bohlen@fokus.fraunhofer.de
+ */
 public class MainVerticle extends AbstractVerticle {
 
     private static Logger LOGGER = LoggerFactory.getLogger(MainVerticle.class.getName());
@@ -33,6 +35,12 @@ public class MainVerticle extends AbstractVerticle {
     private DatabaseService databaseService;
     private DockerService dockerService;
     private int servicePort;
+
+    private static final String LISTADAPTERS_QUERY = "SELECT name FROM adapters";
+    private static final String EDIT_QUERY = "UPDATE adapters SET updated_at = ?, host = ?, port = ? WHERE name = ? ";
+    private static final String FINDBYNAME_QUERY = "SELECT host, port FROM adapters WHERE name= ?";
+    private static final String UNREGISTER_QUERY = "DELETE FROM adapters WHERE host=?";
+    private static final String ADD_QUERY = "INSERT INTO adapters values(?,?,?,?,?)";
 
     @Override
     public void start(Future<Void> startFuture) {
@@ -79,7 +87,7 @@ public class MainVerticle extends AbstractVerticle {
                                 startFuture.complete();
                             }
                             else{
-                                LOGGER.info("Initialization failed.");
+                                LOGGER.error("Initialization failed.");
                                 startFuture.fail(reply.cause());
                             }
                         });
@@ -131,12 +139,12 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void listAdapters(Handler<AsyncResult<JsonArray>> resultHandler){
-        this.databaseService.query("SELECT name FROM adapters", new JsonArray(), reply -> {
+        this.databaseService.query(LISTADAPTERS_QUERY, new JsonArray(), reply -> {
             if(reply.succeeded()){
                 resultHandler.handle(Future.succeededFuture(new JsonArray(reply.result())));
             }
             else{
-                LOGGER.info("Adapter names could not be retrieved.", reply.cause());
+                LOGGER.error("Adapter names could not be retrieved.", reply.cause());
                 resultHandler.handle(Future.failedFuture(reply.cause()));
             }
         });
@@ -194,20 +202,19 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void findImages(Handler<AsyncResult<JsonArray>> resultHandler){
-        LOGGER.info("Loading images.");
         this.dockerService.findImages(reply -> {
            if(reply.succeeded()){
                resultHandler.handle(reply);
            }
            else{
-               LOGGER.info("Images could not be loaded.", reply.cause());
+               LOGGER.error("Images could not be loaded.", reply.cause());
                resultHandler.handle(Future.failedFuture(reply.cause()));
            }
         });
     }
 
     private void edit(String name, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler ){
-        this.databaseService.update("UPDATE adapters SET updated_at = ?, host = ?, port = ? WHERE name = ? ", new JsonArray().add(new Date().toInstant()).add(jsonObject.getString("host")).add(jsonObject.getLong("port")).add(name), reply -> {
+        this.databaseService.update(EDIT_QUERY, new JsonArray().add(new Date().toInstant()).add(jsonObject.getString("host")).add(jsonObject.getLong("port")).add(name), reply -> {
             if(reply.succeeded()){
                 JsonObject jO = new JsonObject();
                 jO.put("status", "success");
@@ -223,61 +230,72 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void getAdapter(String name, Handler<AsyncResult<JsonObject>> resultHandler){
-        this.databaseService.query("SELECT host, port FROM adapters WHERE name= ?", new JsonArray().add(name), reply -> {
+        this.databaseService.query(FINDBYNAME_QUERY, new JsonArray().add(name), reply -> {
            if(reply.succeeded()){
-               JsonObject jsonObject = new JsonObject().put("host", reply.result().get(0).getString("host"))
-                                                    .put("port", reply.result().get(0).getLong("port"));
+               JsonObject jsonObject = new JsonObject()
+                       .put("host", reply.result().get(0).getString("host"))
+                       .put("port", reply.result().get(0).getLong("port"));
                resultHandler.handle(Future.succeededFuture(jsonObject));
            }
            else{
-               LOGGER.info("Information for "+name+" could not be retrieved.", reply.cause());
+               LOGGER.error("Information for "+name+" could not be retrieved.", reply.cause());
                resultHandler.handle(Future.failedFuture(reply.cause()));
            }
         });
-
     }
 
     private void unregister(JsonArray jsonArray){
-
-        LOGGER.info(jsonArray.toString());
-
-        this.databaseService.update("DELETE FROM adapters WHERE host=?", jsonArray, reply -> {
+        this.databaseService.update(UNREGISTER_QUERY, jsonArray, reply -> {
            if(reply.succeeded()){
-                LOGGER.info("delete succeded");
+                LOGGER.info("delete succeeded");
            }
            else{
-               LOGGER.info(reply.cause());
+               LOGGER.error(reply.cause());
            }
         });
     }
 
     private void register(JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler){
 
-        Date d = new Date();
-        this.databaseService.update("INSERT INTO adapters values(?,?,?,?, ?)", new JsonArray()
-                .add(d.toInstant())
-                .add(d.toInstant())
-                .add(jsonObject.getString("name"))
-                .add(jsonObject.getJsonObject("address").getString("host"))
-                .add(jsonObject.getJsonObject("address").getLong("port")), reply -> {
-                    if(reply.succeeded()){
-                        JsonObject jO = new JsonObject();
-                        jO.put("status", "success");
-                        jO.put("text", "Adapter wurde registriert");
-                        resultHandler.handle(Future.succeededFuture(jO));
-                    } else {
-                        JsonObject jO = new JsonObject();
-                        jO.put("status", "error");
-                        jO.put("text", "Der Adapter konnte nicht registriert werden!");
-                        resultHandler.handle(Future.succeededFuture(jO));
-                    }
-                });
+        databaseService.query(FINDBYNAME_QUERY, new JsonArray().add(jsonObject.getString("name")), reply -> {
+            if(reply.succeeded()){
+                if(reply.result().size() > 0){
+                    edit(jsonObject.getString("name"), jsonObject.getJsonObject("address"), reply2 -> {
+                        if(reply2.succeeded()){
+                            JsonObject jO = new JsonObject();
+                            jO.put("status", "success");
+                            jO.put("text", "Adapter wurde registriert");
+                            resultHandler.handle(Future.succeededFuture(jO));
+                        } else {
+                            JsonObject jO = new JsonObject();
+                            jO.put("status", "error");
+                            jO.put("text", "Der Adapter konnte nicht registriert werden!");
+                            resultHandler.handle(Future.succeededFuture(jO));
+                        }
+                    });
+                }
+                else{
+                    Date d = new Date();
+                    this.databaseService.update(ADD_QUERY, new JsonArray()
+                            .add(d.toInstant())
+                            .add(d.toInstant())
+                            .add(jsonObject.getString("name"))
+                            .add(jsonObject.getJsonObject("address").getString("host"))
+                            .add(jsonObject.getJsonObject("address").getLong("port")), reply3 -> {
+                        if(reply3.succeeded()){
+                            JsonObject jO = new JsonObject();
+                            jO.put("status", "success");
+                            jO.put("text", "Adapter wurde registriert");
+                            resultHandler.handle(Future.succeededFuture(jO));
+                        } else {
+                            JsonObject jO = new JsonObject();
+                            jO.put("status", "error");
+                            jO.put("text", "Der Adapter konnte nicht registriert werden!");
+                            resultHandler.handle(Future.succeededFuture(jO));
+                        }
+                    });
+                }
+            }
+        });
     }
-
-    public static void main(String[] args) {
-        String[] params = Arrays.copyOf(args, args.length + 1);
-        params[params.length - 1] = MainVerticle.class.getName();
-        Launcher.executeCommand("run", params);
-    }
-
 }

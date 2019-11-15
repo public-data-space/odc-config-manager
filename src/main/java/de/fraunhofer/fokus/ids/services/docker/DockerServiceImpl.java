@@ -2,6 +2,7 @@ package de.fraunhofer.fokus.ids.services.docker;
 
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.CreateContainerResponse;
+import com.github.dockerjava.api.command.CreateVolumeResponse;
 import com.github.dockerjava.api.model.*;
 import de.fraunhofer.fokus.ids.models.DockerImage;
 import de.fraunhofer.fokus.ids.services.database.DatabaseService;
@@ -11,19 +12,22 @@ import io.vertx.core.Handler;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.logging.Logger;
+import io.vertx.core.logging.LoggerFactory;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.time.Instant;
+import java.util.*;
 import java.util.stream.Collectors;
-
+/**
+ * @author Vincent Bohlen, vincent.bohlen@fokus.fraunhofer.de
+ */
 public class DockerServiceImpl implements DockerService {
+    private Logger LOGGER = LoggerFactory.getLogger(DockerServiceImpl.class.getName());
 
-    DockerClient dockerClient;
-    Set<String> knownImages = new HashSet<>();
-    DatabaseService databaseService;
-    String prefix = "";
+    private DockerClient dockerClient;
+    private Set<String> knownImages = new HashSet<>();
+    private DatabaseService databaseService;
+    private String prefix = "";
 
     public DockerServiceImpl(DatabaseService databaseService, DockerClient dockerClient, Handler<AsyncResult<DockerService>> readyHandler){
         this.dockerClient = dockerClient;
@@ -63,25 +67,56 @@ public class DockerServiceImpl implements DockerService {
         return this;
     }
 
+    private void getContainer(String imageId, Handler<AsyncResult<String>> resultHandler){
+        databaseService.query("SELECT * FROM containers WHERE imageId = ?", new JsonArray().add(imageId), reply -> {
+            if(reply.succeeded()) {
+                if(reply.result().size() == 0) {
+                    Volume v = new Volume("/ids/repo/");
+                    String containerId = dockerClient.createContainerCmd(imageId).withVolumes(v).withEnv("REPOSITORY=/ids/repo/").exec().getId();
+                    Network idsNetwork = dockerClient.listNetworksCmd().withNameFilter("ids_connector").exec().get(0);
+                    dockerClient.connectToNetworkCmd()
+                            .withNetworkId(idsNetwork.getId())
+                            .withContainerId(containerId)
+                            .exec();
+                    resultHandler.handle(Future.succeededFuture(containerId));
+                    Instant d = new Date().toInstant();
+                    databaseService.update("INSERT INTO containers values(?,?,?,?)", new JsonArray().add(d).add(d).add(imageId).add(containerId), insertReply -> {
+                        if(insertReply.failed()){
+                            LOGGER.error("Container could not be inserted into database.");
+                        }
+                    });
+                } else{
+                    resultHandler.handle(Future.succeededFuture(reply.result().get(0).getString("containerId")));
+                }
+            } else{
+                LOGGER.error(reply.cause());
+                resultHandler.handle(Future.failedFuture(reply.cause()));
+            }
+        });
+    }
+
     @Override
     public DockerService startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler) {
-        Network idsNetwork = dockerClient.listNetworksCmd().withNameFilter("ids_connector").exec().get(0);
-        Volume v = new Volume("/ids/repo/");
-        CreateContainerResponse container = dockerClient.createContainerCmd(imageId).withVolumes(v).withEnv("REPOSITORY=/ids/repo/").exec();
-        dockerClient.startContainerCmd(container.getId()).exec();
-        dockerClient.connectToNetworkCmd()
-                .withNetworkId(idsNetwork.getId())
-                .withContainerId(container.getId())
-                .exec();
-        String imageName = dockerClient.listImagesCmd().exec().stream().filter(i -> i.getId().equals(imageId)).findFirst().get().getRepoTags()[0].split(":")[0];
-        JsonObject jO = new JsonObject();
-        JsonObject address = new JsonObject();
-        address.put("host",container.getId().substring(0,12));
-        address.put("port", 8080);
-        jO.put("name", imageName.toUpperCase());
-        jO.put("address", address);
 
-        resultHandler.handle(Future.succeededFuture(jO));
+        Future<String> containerIdFuture = Future.future();
+        getContainer(imageId, containerIdFuture.completer());
+        containerIdFuture.setHandler(ac -> {
+            if(ac.succeeded()) {
+                dockerClient.startContainerCmd(containerIdFuture.result()).exec();
+                String imageName = dockerClient.listImagesCmd().exec().stream().filter(i -> i.getId().equals(imageId)).findFirst().get().getRepoTags()[0].split(":")[0];
+                JsonObject jO = new JsonObject();
+                JsonObject address = new JsonObject();
+                address.put("host", containerIdFuture.result().substring(0, 12));
+                address.put("port", 8080);
+                jO.put("name", imageName.toUpperCase());
+                jO.put("address", address);
+
+                resultHandler.handle(Future.succeededFuture(jO));
+            }
+            else{
+                resultHandler.handle(Future.failedFuture(ac.cause()));
+            }
+        });
         return this;
     }
 

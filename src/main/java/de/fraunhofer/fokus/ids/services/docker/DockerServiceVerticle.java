@@ -9,10 +9,10 @@ import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.serviceproxy.ServiceBinder;
 import org.apache.commons.lang.SystemUtils;
-
+/**
+ * @author Vincent Bohlen, vincent.bohlen@fokus.fraunhofer.de
+ */
 public class DockerServiceVerticle extends AbstractVerticle {
-
-    private Logger LOGGER = LoggerFactory.getLogger(DockerServiceVerticle.class.getName());
 
     @Override
     public void start(Future<Void> startFuture) {
