@@ -36,6 +36,7 @@ public class DockerServiceImpl implements DockerService {
         knownImages.add("maven");
         knownImages.add("node");
         knownImages.add("postgres");
+        knownImages.add("nginx");
         readyHandler.handle(Future.succeededFuture(this));
     }
 
