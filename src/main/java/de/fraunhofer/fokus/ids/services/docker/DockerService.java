@@ -11,6 +11,7 @@ import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.WebClient;
 
 import javax.xml.crypto.Data;
 /**
@@ -29,12 +30,9 @@ public interface DockerService {
     @Fluent
     DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<JsonArray>> resultHandler);
 
-    @Fluent
-    DockerService findContainersInNetwork(Handler<AsyncResult<JsonArray>> resultHandler);
-
     @GenIgnore
-    static DockerService create(DatabaseService databaseService, DockerClient dockerClient, Handler<AsyncResult<DockerService>> readyHandler) {
-        return new DockerServiceImpl(databaseService, dockerClient, readyHandler);
+    static DockerService create(WebClient webClient, DatabaseService databaseService, int dockerServicePort, String dockerServiceHost, Handler<AsyncResult<DockerService>> readyHandler) {
+        return new DockerServiceImpl(databaseService,webClient, dockerServicePort, dockerServiceHost, readyHandler);
     }
 
     @GenIgnore
