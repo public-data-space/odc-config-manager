@@ -79,9 +79,9 @@ public class DockerServiceImpl implements DockerService {
     }
 
     @Override
-    public DockerService startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler) {
+    public DockerService startContainer(String uuid, Handler<AsyncResult<JsonObject>> resultHandler) {
 
-        get(dockerServicePort, dockerServiceHost, "/images/start/"+imageId, reply -> {
+        post(dockerServicePort, dockerServiceHost, "/images/start/", new JsonObject().put("data",uuid), reply -> {
             if (reply.succeeded()) {
                 resultHandler.handle(Future.succeededFuture(reply.result()));
             } else {
@@ -93,10 +93,10 @@ public class DockerServiceImpl implements DockerService {
     }
 
     @Override
-    public DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<JsonArray>> resultHandler) {
-        post(dockerServicePort, dockerServiceHost, "/images/stop/", new JsonObject().put("data",containerIds), reply -> {
+    public DockerService stopContainer(String uuid, Handler<AsyncResult<JsonArray>> resultHandler) {
+        post(dockerServicePort, dockerServiceHost, "/images/stop/", new JsonObject().put("data",uuid), reply -> {
             if (reply.succeeded()) {
-                resultHandler.handle(Future.succeededFuture(reply.result().getJsonArray("data")));
+                resultHandler.handle(Future.succeededFuture(new JsonArray().add(reply.result())));
             } else {
                 LOGGER.error(reply.cause());
                 resultHandler.handle(Future.failedFuture(reply.cause()));

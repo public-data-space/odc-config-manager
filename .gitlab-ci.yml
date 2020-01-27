@@ -20,7 +20,7 @@ build:
       - target/*.jar
 
 
-register develop:
+register master:
   stage: register
   tags:
     - dind

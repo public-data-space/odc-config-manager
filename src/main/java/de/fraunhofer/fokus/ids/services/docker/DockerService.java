@@ -25,10 +25,10 @@ public interface DockerService {
     DockerService findImages(Handler<AsyncResult<JsonArray>> resultHandler);
 
     @Fluent
-    DockerService startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler);
+    DockerService startContainer(String uuid, Handler<AsyncResult<JsonObject>> resultHandler);
 
     @Fluent
-    DockerService stopContainer(JsonArray containerIds, Handler<AsyncResult<JsonArray>> resultHandler);
+    DockerService stopContainer(String uuid, Handler<AsyncResult<JsonArray>> resultHandler);
 
     @GenIgnore
     static DockerService create(WebClient webClient, DatabaseService databaseService, int dockerServicePort, String dockerServiceHost, Handler<AsyncResult<DockerService>> readyHandler) {

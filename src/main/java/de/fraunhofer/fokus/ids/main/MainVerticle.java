@@ -39,7 +39,7 @@ public class MainVerticle extends AbstractVerticle {
     private static final String LISTADAPTERS_QUERY = "SELECT name FROM adapters";
     private static final String EDIT_QUERY = "UPDATE adapters SET updated_at = ?, host = ?, port = ? WHERE name = ? ";
     private static final String FINDBYNAME_QUERY = "SELECT host, port FROM adapters WHERE name= ?";
-    private static final String UNREGISTER_QUERY = "DELETE FROM adapters WHERE host=?";
+    private static final String UNREGISTER_QUERY = "DELETE FROM adapters WHERE name=?";
     private static final String ADD_QUERY = "INSERT INTO adapters values(?,?,?,?,?)";
 
     @Override
@@ -127,11 +127,11 @@ public class MainVerticle extends AbstractVerticle {
 
         router.route("/images").handler(routingContext ->  findImages(reply -> reply(reply, routingContext.response())));
 
-        router.route("/images/start/:id").handler(routingContext ->  startContainer(routingContext.request().getParam("id"),reply -> reply(reply, routingContext.response())));
+        router.post("/images/start/").handler(routingContext ->  startContainer(routingContext.getBodyAsString(), reply -> reply(reply, routingContext.response())));
 
         router.route("/listAdapters").handler(routingContext ->  listAdapters(reply -> reply(reply, routingContext.response())));
 
-        router.post("/images/stop/").handler(routingContext ->  stopContainer(routingContext.getBodyAsJsonArray(),reply -> reply(reply, routingContext.response())));
+        router.post("/images/stop/").handler(routingContext ->  stopContainer(routingContext.getBodyAsString(), reply -> reply(reply, routingContext.response())));
 
         LOGGER.info("Starting Config manager");
         server.requestHandler(router).listen(servicePort);
@@ -150,8 +150,8 @@ public class MainVerticle extends AbstractVerticle {
         });
     }
 
-    private void startContainer(String imageId, Handler<AsyncResult<JsonObject>> resultHandler){
-        dockerService.startContainer(imageId, reply -> {
+    private void startContainer(String uuid, Handler<AsyncResult<JsonObject>> resultHandler){
+        dockerService.startContainer(uuid, reply -> {
             if(reply.succeeded()){
                 register(reply.result(), res -> {});
                 JsonObject jO = new JsonObject();
@@ -168,11 +168,11 @@ public class MainVerticle extends AbstractVerticle {
         });
     }
 
-    private void stopContainer(JsonArray imageIds, Handler<AsyncResult<JsonObject>> resultHandler){
-        dockerService.stopContainer(imageIds, reply -> {
+    private void stopContainer(String uuid, Handler<AsyncResult<JsonObject>> resultHandler){
+        dockerService.stopContainer(uuid, reply -> {
             if(reply.succeeded()){
                 JsonObject jO = new JsonObject();
-                unregister(reply.result());
+                unregister(new JsonArray().add(reply.result().getJsonObject(0).getString("data")));
                 jO.put("status", "success");
                 jO.put("text", "App wird gestoppt...");
                 resultHandler.handle(Future.succeededFuture(jO));
@@ -232,10 +232,16 @@ public class MainVerticle extends AbstractVerticle {
     private void getAdapter(String name, Handler<AsyncResult<JsonObject>> resultHandler){
         this.databaseService.query(FINDBYNAME_QUERY, new JsonArray().add(name), reply -> {
            if(reply.succeeded()){
-               JsonObject jsonObject = new JsonObject()
-                       .put("host", reply.result().get(0).getString("host"))
-                       .put("port", reply.result().get(0).getLong("port"));
-               resultHandler.handle(Future.succeededFuture(jsonObject));
+               try{
+                   JsonObject jsonObject = new JsonObject()
+                           .put("host", reply.result().get(0).getString("host"))
+                           .put("port", reply.result().get(0).getLong("port"));
+                   resultHandler.handle(Future.succeededFuture(jsonObject));
+               }
+               catch (IndexOutOfBoundsException e){
+                   LOGGER.info("Queried adapter not registered.");
+                   resultHandler.handle(Future.failedFuture("Queried adapter not registered."));
+               }
            }
            else{
                LOGGER.error("Information for "+name+" could not be retrieved.", reply.cause());
