@@ -125,9 +125,9 @@ public class MainVerticle extends AbstractVerticle {
                         getAdapter(auth, routingContext.request().getParam("name"), reply ->
                         reply(reply, routingContext.response()))));
 
-        router.post("/register").handler(routingContext -> auth(routingContext.request().headers().get("Authorization"), auth -> register(auth, routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response()))));
+        router.post("/register").handler(routingContext ->  register(routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response())));
 
-        router.post("/edit/:name").handler(routingContext -> auth(routingContext.request().headers().get("Authorization"),auth -> edit(auth, routingContext.request().getParam("name"), routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response()))));
+        router.post("/edit/:name").handler(routingContext -> edit(routingContext.request().getParam("name"), routingContext.getBodyAsJson(), reply -> reply(reply, routingContext.response())));
 
         router.route("/images").handler(routingContext ->  auth(routingContext.request().headers().get("Authorization"),auth -> findImages(auth, reply -> reply(reply, routingContext.response()))));
 
@@ -143,7 +143,8 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void auth(String header, Handler<AsyncResult<Void>> next){
-        if(header.startsWith("Bearer")){
+        LOGGER.info(header);
+        if(header != null && header.startsWith("Bearer")){
             String passedKey = header.substring(header.indexOf(" ")).trim();
             if(passedKey.equals(apikey)){
                 next.handle(Future.succeededFuture());
@@ -176,7 +177,7 @@ public class MainVerticle extends AbstractVerticle {
         if(auth.succeeded()) {
             dockerService.startContainer(uuid, reply -> {
                 if (reply.succeeded()) {
-                    register(auth, reply.result(), res -> {
+                    register(reply.result(), res -> {
                     });
                     JsonObject jO = new JsonObject();
                     jO.put("status", "success");
@@ -245,8 +246,7 @@ public class MainVerticle extends AbstractVerticle {
         }
     }
 
-    private void edit(AsyncResult<Void> auth, String name, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler ){
-        if(auth.succeeded()) {
+    private void edit(String name, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler ){
             this.databaseService.update(EDIT_QUERY, new JsonArray().add(new Date().toInstant()).add(jsonObject.getString("host")).add(jsonObject.getLong("port")).add(name), reply -> {
                 if (reply.succeeded()) {
                     JsonObject jO = new JsonObject();
@@ -260,9 +260,6 @@ public class MainVerticle extends AbstractVerticle {
                     resultHandler.handle(Future.succeededFuture(jO));
                 }
             });
-        } else {
-            resultHandler.handle(Future.failedFuture(auth.cause()));
-        }
     }
 
     private void getAdapter(AsyncResult<Void> auth, String name, Handler<AsyncResult<JsonObject>> resultHandler){
@@ -298,12 +295,11 @@ public class MainVerticle extends AbstractVerticle {
             });
     }
 
-    private void register(AsyncResult<Void> auth, JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler){
-        if(auth.succeeded()) {
+    private void register(JsonObject jsonObject, Handler<AsyncResult<JsonObject>> resultHandler){
             databaseService.query(FINDBYNAME_QUERY, new JsonArray().add(jsonObject.getString("name")), reply -> {
                 if (reply.succeeded()) {
                     if (reply.result().size() > 0) {
-                        edit(auth, jsonObject.getString("name"), jsonObject.getJsonObject("address"), reply2 -> {
+                        edit(jsonObject.getString("name"), jsonObject.getJsonObject("address"), reply2 -> {
                             if (reply2.succeeded()) {
                                 JsonObject jO = new JsonObject();
                                 jO.put("status", "success");
@@ -339,8 +335,5 @@ public class MainVerticle extends AbstractVerticle {
                     }
                 }
             });
-        } else {
-            resultHandler.handle(Future.failedFuture(auth.cause()));
-        }
     }
 }
