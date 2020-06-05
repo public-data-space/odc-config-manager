@@ -143,7 +143,6 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     private void auth(String header, Handler<AsyncResult<Void>> next){
-        LOGGER.info(header);
         if(header != null && header.startsWith("Bearer")){
             String passedKey = header.substring(header.indexOf(" ")).trim();
             if(passedKey.equals(apikey)){
